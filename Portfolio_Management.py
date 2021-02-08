@@ -6,6 +6,7 @@ Created on Fri Feb  5 14:35:44 2021
 @author: fabianschweinzer
 """
 import pandas as pd
+import seaborn as sns
 
 
 
@@ -108,17 +109,16 @@ ef_pm.portfolio_performance(verbose=True)
 df_pm = pd.DataFrame.from_dict(data=cleaned_weights, orient='index')
 df_pm.columns = ['Weight']
 df_pm = df_pm.nlargest(25, 'Weight')
-df_pm.to_excel('List_PM_25Stocks.xlsx')
+
+#due to cutting the dataset to the 25 largest we lose some weights
+#create a for loop for getting the weights to a sum of 1
+for ticker in df_pm:
+    df_pm[ticker] = df_pm['Weight'] / np.sum(df_pm['Weight']) * 1
+
+
+df_pm.to_excel('List_PM_25.xlsx', sheet_name='Equities')
 ticker_list_pm = df_pm.index.to_list()
 
-#create a dictionary which can be used for the Discrete Allocation as an input
-weight_pm = df_pm.to_dict(orient='dict')
-weight_pm = {}
-values = df_pm['Weight']
-for ticker in ticker_list_pm:
-    weight_pm[ticker] = values[ticker]
-print(weight_pm)
-    
 
 #plot efficient frontier
 cla_pm = CLA(mu, semi_cov)
@@ -126,24 +126,178 @@ cla_pm.max_sharpe()
 
 frontier = plotting.plot_efficient_frontier(cla_pm, ef_param='risk', show_assets=True)
 
+###############################################################
+
+#read in excel file for the ETFs
+etf_data = pd.read_excel('List_PM_ETF.xlsx', sheet_name='ETF').set_index('Unnamed: 0')
+
+
+#we give etfs a weight of 30% for the total portfolio
+for i in etf_data:
+    etf_data[i] = etf_data[i]*0.3
+
+#we give equities a weight of 70% for the total portfolio
+for i in df_pm:
+    df_pm[i] = df_pm[i]*0.7
+      
+#merge df_pm dataset with etf_data dataset
+portfolio_total = pd.concat([df_pm, etf_data])
+#
+#np.sum(portfolio_total['Weight'])
+
+#create a list of the total portfolio tickers
+portfolio_tickers = portfolio_total.index.to_list()
+
+####################################################################
+    
+
+
+###calculate portfolio_return and portfolio standard deviation
+portfolio =  data.DataReader(portfolio_tickers, data_source='yahoo', 
+                               start = s, 
+                               end = e)['Adj Close']
+
+portfolio.sort_index(inplace=True)
+
+
+portfolio_return = portfolio.pct_change().dropna()
+
+mean_portfolio_return = portfolio_return.mean()
+
+return_std = portfolio_return.std()
+portfolio_cov = portfolio_return.cov()
+
+#portfolio return added to the portfolio_return
+portfolio_return['Portfolio'] = portfolio_return.mean(axis=1)
+
+
+stock_portfolio_return = round(np.sum(mean_portfolio_return * portfolio_total['Weight']) * 252,2)
+
+portfolio_std= round(np.sqrt(np.dot(portfolio_total['Weight'].T,np.dot(portfolio_cov, portfolio_total['Weight']))) * np.sqrt(252),2)
+
+print('Portfolio expected annualised return is ' + str(stock_portfolio_return) + ' with a standard deviation of ' + str(portfolio_std))#' and volatility is {}').format(stock_portfolio_return,portfolio_std)
+
+
+####################################################
+#get a monte carlo simulation for the portfolio return
+# Parametric
+# Initialize Monte Carlo parameters
+
+monte_carlo_runs = 1000
+days_to_simulate = 5
+loss_cutoff      = 0.95         # count any losses larger than 5% (or -5%)
+
+
+compound_returns  = return_std.copy()
+total_simulations = 0
+bad_simulations   = 0
+
+for run_counter in range(0,monte_carlo_runs):   # Loop over runs    
+    for i in portfolio_tickers:                      # loop over tickers, below is done once per ticker
+        
+        # Loop over simulated days:
+        compounded_temp = 1
+        
+        for simulated_day_counter in range(0,days_to_simulate): # loop over days
+            
+            # Draw from 𝑁~(𝜇,𝜎)
+            ######################################################
+            simulated_return = np.random.normal(mean_portfolio_return[i],return_std[i],1)
+            ######################################################
+            
+            compounded_temp = compounded_temp * (simulated_return + 1)        
+        
+        compound_returns[i] = compounded_temp     # store compounded returns
+    
+    # Now see if those returns are bad by combining with weights
+    portfolio_return_mc = compound_returns.dot(portfolio_total['Weight']) # dot product
+    
+    if(portfolio_return_mc < loss_cutoff):
+        bad_simulations = bad_simulations + 1
+    
+    total_simulations = total_simulations + 1
+
+print("Your portfolio will lose", round((1-loss_cutoff)*100,3), "%",
+      "over", days_to_simulate, "days", 
+      bad_simulations/total_simulations, "of the time.")
+
+# Plot Returns + VaR
+
+# setting figure size
+fig, ax = plt.subplots(figsize = (13, 5))
+
+# histogram for returns
+sns.histplot(data  = portfolio_return['Portfolio'],  # data set - index Facebook (or AAPL or GOOG)
+             bins  = 'fd',          # number of bins ('fd' = Freedman-Diaconis Rule) 
+             kde   = True,          # kernel density plot (line graph)
+             alpha = 0.2,           # transparency of colors
+             stat  = 'count')     # can be set to 'count', 'frequency', or 'probability'
+
+
+# this adds a title
+plt.title(label = "Distribution of Portfolio Return")
+
+
+# this adds an x-label
+plt.xlabel(xlabel = 'Returns')
+
+
+# this add a y-label
+plt.ylabel(ylabel = 'Count')
+
+
+# instantiate VaR with 95% confidence level
+VaR_95 = np.percentile(portfolio_return, 5)
+
+
+# this adds a line to signify VaR
+plt.axvline(x         = VaR_95,         # x-axis location
+            color     = 'r',            # line color
+            linestyle = '--')           # line style
+
+
+# this adds a label to the line
+plt.text(VaR_95,                         # x-axis location
+         30,                             # y-axis location
+         'VaR',                          # text
+         horizontalalignment = 'right',  # alignment ('center' | 'left')
+         fontsize = 'x-large')           # fontsize
+
+
+# these compile and display the plot so that it is formatted as expected
+plt.tight_layout()
+plt.show()
+
+
+#create a dictionary which can be used for the Discrete Allocation as an input
+weight_portfolio = portfolio_total.to_dict(orient='dict')
+weight_portfolio = {}
+values = portfolio_total['Weight']
+for ticker in portfolio_tickers:
+    weight_portfolio[ticker] = values[ticker]
+print(weight_portfolio)
+
+
+
 #Discrete Allocation
 #initialize Discrete Allocation to get a full picture what you could buy with a given amount
 from pypfopt import DiscreteAllocation
 from datetime import datetime
 
-funds_pm = 100000
+money_available = 100000
 
-da_pm = data.DataReader(ticker_list_pm, data_source='yahoo', start=datetime(2020,1,28), end=datetime.today())['Adj Close']
+da_portfolio = data.DataReader(portfolio_tickers, data_source='yahoo', start=datetime(2020,1,28), end=datetime.today())['Adj Close']
 
-latest_price_pm = da_pm.iloc[-1,:]
+latest_price_portfolio = da_portfolio.iloc[-1,:]
 
-alloc_pm = DiscreteAllocation(weight_pm,latest_prices=latest_price_pm, total_portfolio_value=funds_pm)
-allocation, leftover = alloc_pm.lp_portfolio()
-print(allocation)
-print(leftover)
+alloc_portfolio = DiscreteAllocation(weight_portfolio,latest_prices=latest_price_portfolio, 
+                                     total_portfolio_value=money_available)
+allocation, leftover = alloc_portfolio.lp_portfolio()
+print("Discrete allocation:", allocation)
+print("Funds remaining: ${:.2f}".format(leftover))
 
-pie_alloc_pm = pd.Series(allocation).plot.pie(figsize=(10,10))
-plt.show(pie_alloc_pm)
+pie_alloc_portfolio = pd.Series(allocation).plot.pie(figsize=(10,10))
+plt.show(pie_alloc_portfolio)
 
 #after we can add the monte carlo simulation given the ticker list from the optimizer
 #after we can do the backtesting (either here or in portfolio visualizer)
