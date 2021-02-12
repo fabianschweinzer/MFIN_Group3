@@ -8,8 +8,9 @@ Created on Thu Jan 28 11:23:50 2021
 
 import pandas as pd
 import numpy as np
-import tkinter as tk
+#import tkinter as tk
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 sp500_data = pd.read_csv('/Users/fabianschweinzer/Desktop/Hult International Business School/MFIN/Python/Group Project Group 3/portfolio-modeling-main/S&P_Database_Final')
@@ -20,7 +21,7 @@ print("Answer the following questions to get recommendations for your individual
 
 #Funds available
 
-funds_q = input("How many dollars do you want to invest? (Specify an amount)")
+funds_q = float(input("How many dollars do you want to invest? (Specify an amount)"))
 
 
 # Ethical constraints: Weapons
@@ -123,6 +124,15 @@ elif esg_importance == 'Medium':
 else:
     filter_array = sp500_data.loc[:, "Annualized Std"] > sp500_std_50th_percentile
     sp500_data = sp500_data[filter_array]
+    
+#Fin out risk tolerance
+
+#put in conditional arguments regarding the investors risk tolerance
+risk_tolerance = input("Which attitude towards risk matches your character traits the most? (Low/Medium/High) ")
+
+while risk_tolerance != 'Low' and risk_tolerance != 'Medium' and risk_tolerance != 'High':
+    risk_tolerance = input("Please enter a valid input: (Low/Medium/High) ")
+
 
 
 test = input("test")
@@ -191,19 +201,24 @@ from pypfopt import CLA, plotting
 
 
 #calculate the EfficientFrontier using calculated mu, sigma
-ef = EfficientFrontier(mu_target, cov_matrix, weight_bounds=(0,1))
-ef.add_objective(objective_functions.L2_reg, gamma=0.25)
-target_volatility = 0.4
+#ef = EfficientFrontier(mu_target, cov_matrix, weight_bounds=(0,1))
+#ef.add_objective(objective_functions.L2_reg, gamma=0.05)
+target_volatility = 0.3
 #put in conditional arguments regarding the investors risk tolerance
-risk_tolerance = input("Which attitude towards risk matches your character traits the most? (Low/Medium/High) ")
+#risk_tolerance = input("Which attitude towards risk matches your character traits the most? (Low/Medium/High) ")
 
-while risk_tolerance != 'Low' and risk_tolerance != 'Medium' and risk_tolerance != 'High':
-    risk_tolerance = input("Please enter a valid input: (Low/Medium/High) ")
+#while risk_tolerance != 'Low' and risk_tolerance != 'Medium' and risk_tolerance != 'High':
+#    risk_tolerance = input("Please enter a valid input: (Low/Medium/High) ")
 if risk_tolerance == 'Low':
+    ef = EfficientFrontier(mu_target, cov_matrix, weight_bounds=(0,1))
     weights = ef.min_volatility()
 elif risk_tolerance == 'Medium':
+    ef = EfficientFrontier(mu_target, cov_matrix, weight_bounds=(0,1))
+    ef.add_objective(objective_functions.L2_reg, gamma=0.1)
     weights = ef.max_sharpe()
-else:
+elif risk_tolerance == 'High':
+    ef = EfficientFrontier(mu_target, cov_matrix, weight_bounds=(0,1))
+    ef.add_objective(objective_functions.L2_reg, gamma=0.25)
     weights = ef.efficient_risk(target_volatility)
 
 #clean weights for a better visualization
@@ -269,9 +284,12 @@ mu_target_tickers = mu_target[mu_target.index.isin(tickers.index)]
 piechart = pd.Series(tickers['Weight']).plot.pie(figsize=(10,10))
 plt.show(piechart)
 
+
 #create barchart
 barchart = pd.Series(tickers['Weight']).sort_values(ascending=True).plot.barh(figsize=(10,6))
 plt.show(barchart)
+
+#plotting.plot_weights(tickers['Weight'])
 
 #covariance heatmap
 
@@ -300,7 +318,7 @@ for ticker in tickers_list:
     weight_pf[ticker] = values_pf[ticker]
 print(weight_pf)
 
-funds = 100000
+funds = funds_q
 
 da = data.DataReader(tickers_list, data_source='yahoo', start=datetime(2020,1,28), end=datetime.today())['Adj Close']
 
@@ -311,12 +329,12 @@ allocation, leftover = alloc.lp_portfolio()
 print("Discrete allocation:", allocation)
 print("Funds remaining: ${:.2f}".format(leftover))
 
-pie_alloc = pd.Series(allocation).plot.pie(figsize=(10,10))
-plt.show(pie_alloc)
+#pie_alloc = pd.Series(allocation).plot.pie(figsize=(10,10))
+#plt.show()
 
 #barchart of the Discrete Allocation
 barchart_alloc = pd.Series(allocation).sort_values(ascending=True).plot.barh(figsize=(10,6))
-plt.show(barchart_alloc)
+plt.show()
 
 ######
 #monte carlo simulation to get VaR95
@@ -325,32 +343,38 @@ plt.show(barchart_alloc)
 s = datetime(2018,2,5)
 e = datetime.today()
 
-portfolio =  data.DataReader(tickers_list, data_source='yahoo',
+portfolio_data =  data.DataReader(tickers_list, data_source='yahoo',
                                start = s ,
                              end= e )['Adj Close']
 
-portfolio.sort_index(inplace=True)
 
 
-portfolio_return = portfolio.pct_change().dropna()
+portfolio_return_historic = portfolio_data.pct_change().dropna()
+portfolio_return_historic_mean = portfolio_return_historic.mean()
+portfolio_return_historic_std = portfolio_return_historic.std()
 
-mean_portfolio_return = portfolio_return.mean()
-annualised_portfolio_return = mean_portfolio_return *252
-annualised_portfolio_cov = portfolio.pct_change().dropna().cov() *252
 
-return_std = portfolio_return.std()
-portfolio_cov = portfolio_return.cov()
-portfolio_shrinkage = risk_models.CovarianceShrinkage(portfolio, returns_data=False).ledoit_wolf()
+#annualised_portfolio_return = mean_portfolio_return *252
+#annualised_portfolio_cov = portfolio.pct_change().dropna().cov() *252
+
+return_std = database['Annualized Std'].reset_index()
+return_std = return_std[return_std['Symbol'].isin(mu_target_tickers.index)]
+return_std = return_std.set_index('Symbol')
+return_std = return_std.iloc[:,-1]
+
+
+#portfolio_cov = portfolio_return.cov()
+#portfolio_shrinkage = risk_models.CovarianceShrinkage(portfolio, returns_data=False).ledoit_wolf()
 
 #portfolio return added to the portfolio_return
-portfolio_return['Portfolio'] = portfolio_return.mean(axis=1)
+portfolio_return_historic['Portfolio'] = portfolio_return_historic.mean(axis=1)
+
+portfolio_return = mu_target_tickers.dot(tickers['Weight'])
+
+portfolio_std = np.sqrt(np.dot(tickers['Weight'].T,np.dot(cov_matrix_tickers, tickers['Weight'])))
 
 
-stock_portfolio_return = round(np.sum(mean_portfolio_return * tickers['Weight']) * 252,2)
-
-portfolio_std= round(np.sqrt(np.dot(tickers['Weight'].T,np.dot(portfolio_cov, tickers['Weight']))) * np.sqrt(252),2)
-
-print('Portfolio expected annualised return is ' + str(stock_portfolio_return) + ' with a standard deviation of ' + str(portfolio_std))#' and volatility is {}').format(stock_portfolio_return,portfolio_std)
+print('Portfolio expected annualised return is ' + str(portfolio_return) + ' with a standard deviation of ' + str(portfolio_std))#
 
 
 ################
@@ -362,7 +386,6 @@ print('Portfolio expected annualised return is ' + str(stock_portfolio_return) +
 #portfolio_frontier = plotting.plot_efficient_frontier(cla_portfolio, ef_param='risk', show_assets=True)
 #cla_portfolio.portfolio_performance(verbose=True)
 
-import seaborn as sns
 
 ####################################################
 #get a monte carlo simulation for the portfolio return
@@ -371,7 +394,7 @@ import seaborn as sns
 
 monte_carlo_runs = 1000
 days_to_simulate = 5
-loss_cutoff      = 0.95         # count any losses larger than 5% (or -5%)
+loss_cutoff      = 0.95        # count any losses larger than 5% (or -5%)
 
 
 compound_returns  = return_std.copy()
@@ -388,7 +411,7 @@ for run_counter in range(0,monte_carlo_runs):   # Loop over runs
             
             # Draw from 𝑁~(𝜇,𝜎)
             ######################################################
-            simulated_return = np.random.normal(mean_portfolio_return[i],return_std[i],1)
+            simulated_return = np.random.normal(portfolio_return_historic_mean[i],portfolio_return_historic_std[i],1)
             ######################################################
             
             compounded_temp = compounded_temp * (simulated_return + 1)        
@@ -413,7 +436,7 @@ print("Your portfolio will lose", round((1-loss_cutoff)*100,3), "%",
 fig, ax = plt.subplots(figsize = (13, 5))
 
 # histogram for returns
-sns.histplot(data  = portfolio_return['Portfolio'],  # data set - index Facebook (or AAPL or GOOG)
+sns.histplot(data  = portfolio_return_historic['Portfolio'], # data set - index Facebook (or AAPL or GOOG)
              bins  = 'fd',          # number of bins ('fd' = Freedman-Diaconis Rule) 
              kde   = True,          # kernel density plot (line graph)
              alpha = 0.2,           # transparency of colors
@@ -433,7 +456,7 @@ plt.ylabel(ylabel = 'Count')
 
 
 # instantiate VaR with 95% confidence level
-VaR_95 = np.percentile(portfolio_return, 5)
+VaR_95 = np.percentile(portfolio_return_historic, 5)
 
 
 # this adds a line to signify VaR
@@ -458,17 +481,17 @@ plt.show()
 #backtesting with bt backtrader 
 #incorporate backtesting in our project
 
-
+########################################################
 # Import the bt package so we can use the backtesting functions
 import bt
 
 # Intead of using a date to get the data in every call, I set up a variable here
 # It is usually better to use variables so you can change things later in ONE place
 # rather than many places. 
-beginning = '2013-01-01'
+beginning = '2015-01-01'
 
 # Import data
-data_bt = bt.get(tickers_list, start=beginning, end= s)
+data_bt = bt.get(tickers_list, start=beginning, end= e)
 
 # We will need the risk-free rate to get correct Sharpe Ratios 
 riskfree =  bt.get('^IRX', start=beginning)
@@ -478,18 +501,46 @@ riskfree_rate = float(riskfree.mean()) / 100
 print(riskfree_rate)
 
 s_mark = bt.Strategy('Portfolio', 
-                       [bt.algos.RunEveryNPeriods(9, 3),
+                       [bt.algos.RunMonthly(),
                        bt.algos.SelectAll(),
-                       bt.algos.WeighMeanVar(),
+                       bt.algos.WeighEqually(),
                        bt.algos.Rebalance()])
+
+#s_mark = bt.Strategy('Portfolio', 
+                     #  [bt.algos.RunEveryNPeriods(9, 3),
+                    #   bt.algos.SelectAll(),
+                    #   bt.algos.WeighMeanVar(),
+                    #   bt.algos.Rebalance()])
 
 b_mark = bt.Backtest(s_mark, data_bt)
 
-result = bt.run(b_mark)
+
+# Fetch some data
+data_sp500 = bt.get('spy,agg', start=beginning, end= s)
+
+# Recreate the strategy named First_Strat
+b_sp500 = bt.Strategy('SP500', [bt.algos.RunMonthly(),
+                                     bt.algos.SelectAll(),
+                                     bt.algos.WeighEqually(),
+                                     bt.algos.Rebalance()])
+
+# Create a backtest named test
+sp500_test = bt.Backtest(b_sp500, data_sp500)
+
+#run the backtest
+result = bt.run(b_mark, sp500_test)
+
+#create the run only for the b_mark
+result_1 = bt.run(b_mark)
 
 #result = bt.run(b_mark, b_inv, b_random, b_best, b_sp500)
 result.set_riskfree_rate(riskfree_rate)
 result.plot()
+
+#show histogram
+#result_1.plot_histogram()
+
+
 # Show some performance metrics
 result.display()
 
